@@ -1,0 +1,78 @@
+version: '3.8'
+
+services:
+  # Main application with Caddy reverse proxy (HTTPS)
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "6482:6482"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - neypotamablex
+    networks:
+      - honeypot-net
+
+  # NeyPotAmablex Application
+  neypotamablex:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    expose:
+      - "6482"
+    environment:
+      - NODE_ENV=production
+    networks:
+      - honeypot-net
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:6482/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  # HTTP Honeypot Decoy Service
+  http-honeypot:
+    image: nginx:alpine
+    restart: unless-stopped
+    volumes:
+      - ./honeypot/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./honeypot/html:/usr/share/nginx/html:ro
+      - honeypot_logs:/var/log/nginx
+    expose:
+      - "8080"
+    networks:
+      honeypot-net:
+        # Isolate the honeypot - no egress allowed
+        aliases:
+          - decoy
+    deploy:
+      resources:
+        limits:
+          cpus: '0.25'
+          memory: 128M
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /tmp
+      - /var/cache/nginx
+      - /var/run
+
+volumes:
+  caddy_data:
+  caddy_config:
+  honeypot_logs:
+
+networks:
+  honeypot-net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.28.0.0/16
