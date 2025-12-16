@@ -1,0 +1,66 @@
+# NeyPotAmablex Caddy Configuration
+# Supports automatic HTTPS for production domains
+# Falls back to self-signed certificates for local development
+
+{
+    # Global options
+    email admin@example.com
+    
+    # For local development without valid domain
+    # Uncomment the line below:
+    # local_certs
+}
+
+# Production domain configuration
+# Replace 'your-domain.com' with your actual domain
+# your-domain.com {
+#     reverse_proxy neypotamablex:6482
+#     
+#     # Security headers
+#     header {
+#         Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+#         X-Content-Type-Options "nosniff"
+#         X-Frame-Options "SAMEORIGIN"
+#         X-XSS-Protection "1; mode=block"
+#         Referrer-Policy "strict-origin-when-cross-origin"
+#         Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: https:; connect-src 'self' https:;"
+#     }
+#     
+#     # Logging
+#     log {
+#         output file /var/log/caddy/access.log
+#         format json
+#     }
+# }
+
+# Local development / fallback configuration
+:6482 {
+    reverse_proxy neypotamablex:6482
+
+    # Security headers
+    header {
+        X-Content-Type-Options "nosniff"
+        X-Frame-Options "SAMEORIGIN"
+        X-XSS-Protection "1; mode=block"
+        Referrer-Policy "strict-origin-when-cross-origin"
+    }
+}
+
+# HTTPS on port 443 with auto-cert (requires valid domain)
+:443 {
+    tls internal
+    reverse_proxy neypotamablex:6482
+    
+    header {
+        Strict-Transport-Security "max-age=31536000; includeSubDomains"
+        X-Content-Type-Options "nosniff"
+        X-Frame-Options "SAMEORIGIN"
+        X-XSS-Protection "1; mode=block"
+        Referrer-Policy "strict-origin-when-cross-origin"
+    }
+}
+
+# HTTP redirect to HTTPS
+:80 {
+    redir https://{host}{uri} permanent
+}
