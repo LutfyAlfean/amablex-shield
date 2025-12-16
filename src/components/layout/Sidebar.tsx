@@ -18,7 +18,7 @@ interface SidebarProps {
 }
 
 const navItems = [
-  { to: '/', icon: LayoutDashboard, label: 'Dashboard', roles: ['admin', 'viewer'] },
+  { to: '/dashboard', icon: LayoutDashboard, label: 'Dashboard', roles: ['admin', 'viewer'] },
   { to: '/analytics', icon: Activity, label: 'Analitik', roles: ['admin', 'viewer'] },
   { to: '/tenants', icon: Server, label: 'Tenant', roles: ['admin'] },
   { to: '/users', icon: Users, label: 'Pengguna', roles: ['admin'] },
