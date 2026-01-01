@@ -1,116 +1,43 @@
 import { useState, useEffect, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Header } from '@/components/layout/Header';
 import { Sidebar } from '@/components/layout/Sidebar';
 import { StatsCard } from '@/components/dashboard/StatsCard';
 import { EventsTable } from '@/components/dashboard/EventsTable';
 import { EventDetailSheet } from '@/components/dashboard/EventDetailSheet';
 import { FilterBar } from '@/components/dashboard/FilterBar';
-import { TopItemsList } from '@/components/dashboard/TopItemsList';
-import { HourlyChart } from '@/components/dashboard/HourlyChart';
-import { 
-  generateMockEvents, 
-  getMockStats, 
-  getMockTopIPs, 
-  getMockTopPaths,
-  getMockSavedViews 
-} from '@/lib/mockData';
-import { HoneypotEvent, EventFilters, EventTag, SavedView } from '@/types/honeypot';
-import { Activity, AlertTriangle, Globe, Shield, Users } from 'lucide-react';
+import { useAuth } from '@/hooks/useAuth';
+import { useEvents } from '@/hooks/useEvents';
+import { useAnalytics } from '@/hooks/useAnalytics';
+import { HoneypotEvent, EventFilters, SavedView } from '@/types/honeypot';
 import { cn } from '@/lib/utils';
+import { Activity, AlertTriangle, Globe, Shield, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 
 export default function Dashboard() {
+  const navigate = useNavigate();
+  const { user, profile, role, signOut } = useAuth();
   const [sidebarOpen, setSidebarOpen] = useState(true);
-  const [events, setEvents] = useState<HoneypotEvent[]>([]);
-  const [filteredEvents, setFilteredEvents] = useState<HoneypotEvent[]>([]);
+  const [filters, setFilters] = useState<EventFilters>({});
+  const [savedViews, setSavedViews] = useState<SavedView[]>([]);
   const [selectedEvent, setSelectedEvent] = useState<HoneypotEvent | null>(null);
   const [detailOpen, setDetailOpen] = useState(false);
-  const [filters, setFilters] = useState<EventFilters>({});
-  const [savedViews, setSavedViews] = useState<SavedView[]>(getMockSavedViews());
-  const [isPaused, setIsPaused] = useState(false);
-  const [isLoading, setIsLoading] = useState(true);
+  
+  const { events, isLoading: eventsLoading, isPaused, setIsPaused, refetch } = useEvents({
+    search: filters.search,
+    risk_level: filters.risk_level,
+    dateFrom: filters.date_from ? new Date(filters.date_from) : undefined,
+    dateTo: filters.date_to ? new Date(filters.date_to) : undefined
+  });
+  const { stats, isLoading: statsLoading } = useAnalytics();
 
-  const stats = getMockStats();
-  const topIPs = getMockTopIPs();
-  const topPaths = getMockTopPaths();
-
-  // Load initial events
-  useEffect(() => {
-    setIsLoading(true);
-    setTimeout(() => {
-      setEvents(generateMockEvents(100));
-      setIsLoading(false);
-    }, 500);
-  }, []);
-
-  // Real-time simulation
-  useEffect(() => {
-    if (isPaused) return;
-
-    const interval = setInterval(() => {
-      const newEvent = generateMockEvents(1)[0];
-      setEvents(prev => [newEvent, ...prev.slice(0, 199)]);
-      
-      if (newEvent.risk_level === 'critical') {
-        toast.error(`Event Kritis Terdeteksi`, {
-          description: `IP: ${newEvent.source_ip} → ${newEvent.path}`,
-        });
-      }
-    }, 3000);
-
-    return () => clearInterval(interval);
-  }, [isPaused]);
-
-  // Apply filters
-  useEffect(() => {
-    let result = [...events];
-
-    if (filters.search) {
-      const search = filters.search.toLowerCase();
-      result = result.filter(e =>
-        e.source_ip.includes(search) ||
-        e.path.toLowerCase().includes(search) ||
-        e.payload_preview.toLowerCase().includes(search) ||
-        e.user_agent.toLowerCase().includes(search)
-      );
-    }
-
-    if (filters.risk_level?.length) {
-      result = result.filter(e => filters.risk_level!.includes(e.risk_level));
-    }
-
-    if (filters.date_from) {
-      const from = new Date(filters.date_from);
-      result = result.filter(e => new Date(e.timestamp) >= from);
-    }
-
-    if (filters.date_to) {
-      const to = new Date(filters.date_to);
-      result = result.filter(e => new Date(e.timestamp) <= to);
-    }
-
-    setFilteredEvents(result);
-  }, [events, filters]);
-
-  const handleViewDetails = (event: HoneypotEvent) => {
-    setSelectedEvent(event);
-    setDetailOpen(true);
+  const handleLogout = async () => {
+    await signOut();
+    navigate('/login');
   };
 
-  const handleAddTag = (eventId: string, tag: EventTag) => {
-    setEvents(prev => prev.map(e => 
-      e.id === eventId ? { ...e, tags: [...e.tags, tag] } : e
-    ));
-    if (selectedEvent?.id === eventId) {
-      setSelectedEvent(prev => prev ? { ...prev, tags: [...prev.tags, tag] } : null);
-    }
-    toast.success(`Tag "${tag}" ditambahkan`);
-  };
-
-  const handleSaveNote = (eventId: string, note: string) => {
-    setEvents(prev => prev.map(e => 
-      e.id === eventId ? { ...e, notes: note } : e
-    ));
+  const handleFiltersChange = (newFilters: EventFilters) => {
+    setFilters(newFilters);
   };
 
   const handleLoadView = (view: SavedView) => {
@@ -123,132 +50,133 @@ export default function Dashboard() {
       id: `sv_${Date.now()}`,
       name,
       filters,
-      created_at: new Date().toISOString(),
+      created_at: new Date().toISOString()
     };
     setSavedViews(prev => [...prev, newView]);
     toast.success(`View "${name}" disimpan`);
   };
 
-  const handleRefresh = () => {
-    setIsLoading(true);
-    setTimeout(() => {
-      setEvents(generateMockEvents(100));
-      setIsLoading(false);
-      toast.success('Data diperbarui');
-    }, 500);
+  const handleViewDetails = (event: HoneypotEvent) => {
+    setSelectedEvent(event);
+    setDetailOpen(true);
   };
 
-  const user = { email: 'admin@neypot.id', role: 'admin' };
+  const handleTagUpdate = (eventId: string, tags: string[]) => {
+    toast.success('Tag diupdate');
+  };
+
+  const handleNoteUpdate = (eventId: string, note: string) => {
+    toast.success('Catatan disimpan');
+  };
+
+  const userInfo = {
+    email: user?.email || profile?.email || 'User',
+    role: role || 'viewer'
+  };
+
+  // Transform events to HoneypotEvent type
+  const transformedEvents: HoneypotEvent[] = events.map(e => ({
+    id: e.id,
+    timestamp: e.timestamp,
+    tenant_id: e.tenant_id,
+    tenant_name: e.tenant_name || 'Unknown',
+    source_ip: e.source_ip,
+    country: e.country || undefined,
+    asn: e.asn || undefined,
+    service: e.service,
+    path: e.path,
+    method: e.method,
+    user_agent: e.user_agent || '',
+    payload_preview: e.body?.substring(0, 50) || '',
+    payload_full: e.body || '',
+    headers: e.headers || {},
+    risk_score: e.risk_score,
+    risk_level: e.risk_score >= 80 ? 'critical' : e.risk_score >= 60 ? 'high' : e.risk_score >= 40 ? 'medium' : e.risk_score >= 20 ? 'low' : 'info',
+    tags: e.tags as any[],
+    notes: e.notes || undefined
+  }));
 
   return (
     <div className="min-h-screen bg-background">
       <Header 
-        user={user} 
-        onLogout={() => toast.info('Logout clicked')}
-        onToggleSidebar={() => setSidebarOpen(!sidebarOpen)}
+        user={userInfo} 
+        onLogout={handleLogout} 
+        onToggleSidebar={() => setSidebarOpen(!sidebarOpen)} 
       />
-      
-      <Sidebar isOpen={sidebarOpen} userRole="admin" />
+      <Sidebar isOpen={sidebarOpen} userRole={role || 'viewer'} />
 
       <main className={cn(
         'transition-all duration-300 p-6',
         sidebarOpen ? 'lg:ml-64' : 'lg:ml-16'
       )}>
-        {/* Stats Grid */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4 mb-6">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
           <StatsCard
             title="Event Hari Ini"
-            value={stats.total_events_today}
-            change={12}
+            value={statsLoading ? '...' : (stats?.totalEventsToday || 0)}
             icon={Activity}
-            variant="primary"
+            change={12}
           />
           <StatsCard
             title="IP Unik"
-            value={stats.unique_ips_today}
-            change={-5}
+            value={statsLoading ? '...' : (stats?.uniqueIpsToday || 0)}
             icon={Globe}
+            change={-5}
           />
           <StatsCard
-            title="Risiko Tinggi"
-            value={stats.high_risk_events}
-            change={23}
+            title="High Risk"
+            value={statsLoading ? '...' : (stats?.highRiskEvents || 0)}
             icon={AlertTriangle}
+            change={8}
             variant="danger"
           />
           <StatsCard
             title="Tenant Aktif"
-            value={stats.active_tenants}
-            icon={Users}
-          />
-          <StatsCard
-            title="Event Minggu Ini"
-            value={stats.total_events_week}
+            value={statsLoading ? '...' : (stats?.activeTenants || 0)}
             icon={Shield}
           />
         </div>
 
-        {/* Charts Row */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-6">
-          <div className="lg:col-span-2">
-            <HourlyChart data={stats.events_per_hour} title="Request per Jam (24 Jam Terakhir)" />
-          </div>
-          <TopItemsList
-            title="Top 5 IP Sumber"
-            items={topIPs}
-            icon={<Globe className="h-4 w-4 text-primary" />}
-          />
-        </div>
-
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-6">
-          <div className="lg:col-span-2">
-            <TopItemsList
-              title="Top 5 Path Target"
-              items={topPaths}
-              icon={<Activity className="h-4 w-4 text-primary" />}
-            />
-          </div>
-        </div>
-
-        {/* Filters */}
         <FilterBar
           filters={filters}
-          onFiltersChange={setFilters}
+          onFiltersChange={handleFiltersChange}
           savedViews={savedViews}
           onLoadView={handleLoadView}
           onSaveView={handleSaveView}
           isPaused={isPaused}
           onTogglePause={() => setIsPaused(!isPaused)}
-          onRefresh={handleRefresh}
+          onRefresh={refetch}
         />
 
-        {/* Live Indicator */}
-        <div className="flex items-center gap-2 my-4">
-          <div className={cn(
-            'h-2 w-2 rounded-full',
-            isPaused ? 'bg-warning' : 'bg-success animate-pulse'
-          )} />
-          <span className="text-sm text-muted-foreground">
-            {isPaused ? 'Dijeda' : 'Live'} • {filteredEvents.length} event
-          </span>
+        <div className="mt-6">
+          {eventsLoading ? (
+            <div className="glass-card p-12 text-center">
+              <Loader2 className="h-8 w-8 animate-spin text-primary mx-auto mb-4" />
+              <p className="text-muted-foreground">Memuat events...</p>
+            </div>
+          ) : transformedEvents.length === 0 ? (
+            <div className="glass-card p-12 text-center">
+              <Shield className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
+              <h3 className="text-lg font-medium mb-2">Belum ada events</h3>
+              <p className="text-muted-foreground">
+                Events akan muncul saat honeypot menerima request.
+              </p>
+            </div>
+          ) : (
+            <EventsTable 
+              events={transformedEvents} 
+              onViewDetails={handleViewDetails}
+            />
+          )}
         </div>
-
-        {/* Events Table */}
-        <EventsTable
-          events={filteredEvents}
-          onViewDetails={handleViewDetails}
-          isLoading={isLoading}
-        />
-
-        {/* Event Detail Sheet */}
-        <EventDetailSheet
-          event={selectedEvent}
-          open={detailOpen}
-          onOpenChange={setDetailOpen}
-          onAddTag={handleAddTag}
-          onSaveNote={handleSaveNote}
-        />
       </main>
+
+      <EventDetailSheet
+        event={selectedEvent}
+        open={detailOpen}
+        onOpenChange={setDetailOpen}
+        onAddTag={(eventId, tag) => toast.success('Tag ditambahkan')}
+        onSaveNote={(eventId, note) => toast.success('Catatan disimpan')}
+      />
     </div>
   );
 }
