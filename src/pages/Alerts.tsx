@@ -9,28 +9,13 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, Dialog
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
+import { Skeleton } from '@/components/ui/skeleton';
 import { cn } from '@/lib/utils';
-import { toast } from 'sonner';
 import { Plus, Search, MoreHorizontal, Trash2, Bell, Pencil, Webhook, MessageSquare, Mail } from 'lucide-react';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
-
-interface AlertRule {
-  id: string;
-  tenant_name: string;
-  name: string;
-  condition: string;
-  threshold: number;
-  webhook_type: 'discord' | 'telegram' | 'slack' | 'email';
-  webhook_url: string;
-  is_active: boolean;
-  triggered_count: number;
-}
-
-const mockAlerts: AlertRule[] = [
-  { id: 'al1', tenant_name: 'PT Secure Corp', name: 'High Rate Alert', condition: 'requests_per_minute', threshold: 100, webhook_type: 'discord', webhook_url: 'https://discord.com/api/webhooks/...', is_active: true, triggered_count: 5 },
-  { id: 'al2', tenant_name: 'PT Secure Corp', name: 'Brute Force Detection', condition: 'brute_force_attempts', threshold: 10, webhook_type: 'telegram', webhook_url: 'https://api.telegram.org/bot.../sendMessage', is_active: true, triggered_count: 12 },
-  { id: 'al3', tenant_name: 'CV Digital Prima', name: 'Critical Risk Alert', condition: 'critical_events', threshold: 5, webhook_type: 'slack', webhook_url: 'https://hooks.slack.com/services/...', is_active: false, triggered_count: 3 },
-];
+import { useAuth } from '@/hooks/useAuth';
+import { useAlerts, AlertRule } from '@/hooks/useAlerts';
+import { useTenants } from '@/hooks/useTenants';
 
 const conditionLabels: Record<string, string> = {
   requests_per_minute: 'Request/menit tinggi',
@@ -47,16 +32,18 @@ const webhookIcons: Record<string, typeof MessageSquare> = {
 };
 
 export default function Alerts() {
+  const { user, profile, role, signOut } = useAuth();
+  const { alerts, isLoading, createAlert, toggleAlert, deleteAlert, testAlert } = useAlerts();
+  const { tenants } = useTenants();
   const [sidebarOpen, setSidebarOpen] = useState(true);
-  const [alerts, setAlerts] = useState<AlertRule[]>(mockAlerts);
   const [search, setSearch] = useState('');
   const [dialogOpen, setDialogOpen] = useState(false);
   const [newAlert, setNewAlert] = useState({ 
-    tenant: '', 
+    tenant_id: '', 
     name: '', 
-    condition: 'requests_per_minute',
+    condition: 'requests_per_minute' as AlertRule['condition'],
     threshold: 100,
-    webhook_type: 'discord' as const,
+    webhook_type: 'discord' as AlertRule['webhook_type'],
     webhook_url: ''
   });
 
@@ -65,47 +52,40 @@ export default function Alerts() {
     a.tenant_name.toLowerCase().includes(search.toLowerCase())
   );
 
-  const handleCreate = () => {
-    if (!newAlert.tenant || !newAlert.name || !newAlert.webhook_url) {
-      toast.error('Semua field wajib diisi');
+  const handleCreate = async () => {
+    if (!newAlert.tenant_id || !newAlert.name || !newAlert.webhook_url) {
       return;
     }
-    const alert: AlertRule = {
-      id: `al${Date.now()}`,
-      tenant_name: newAlert.tenant,
-      name: newAlert.name,
-      condition: newAlert.condition,
-      threshold: newAlert.threshold,
-      webhook_type: newAlert.webhook_type,
-      webhook_url: newAlert.webhook_url,
-      is_active: true,
-      triggered_count: 0
-    };
-    setAlerts([...alerts, alert]);
-    setNewAlert({ tenant: '', name: '', condition: 'requests_per_minute', threshold: 100, webhook_type: 'discord', webhook_url: '' });
-    setDialogOpen(false);
-    toast.success(`Alert "${alert.name}" berhasil dibuat`);
+    
+    const { error } = await createAlert(
+      newAlert.tenant_id,
+      newAlert.name,
+      newAlert.condition,
+      newAlert.threshold,
+      newAlert.webhook_type,
+      newAlert.webhook_url
+    );
+
+    if (!error) {
+      setNewAlert({ 
+        tenant_id: '', 
+        name: '', 
+        condition: 'requests_per_minute', 
+        threshold: 100, 
+        webhook_type: 'discord', 
+        webhook_url: '' 
+      });
+      setDialogOpen(false);
+    }
   };
 
-  const handleToggle = (id: string) => {
-    setAlerts(alerts.map(a => a.id === id ? { ...a, is_active: !a.is_active } : a));
-  };
-
-  const handleDelete = (id: string, name: string) => {
-    setAlerts(alerts.filter(a => a.id !== id));
-    toast.success(`Alert "${name}" berhasil dihapus`);
-  };
-
-  const handleTest = (alert: AlertRule) => {
-    toast.success(`Test alert dikirim ke ${alert.webhook_type}`);
-  };
-
-  const user = { email: 'admin@neypot.id', role: 'admin' };
+  const userInfo = { email: profile?.email || user?.email || '', role: role || 'viewer' };
+  const isAdmin = role === 'admin';
 
   return (
     <div className="min-h-screen bg-background">
-      <Header user={user} onLogout={() => {}} onToggleSidebar={() => setSidebarOpen(!sidebarOpen)} />
-      <Sidebar isOpen={sidebarOpen} userRole="admin" />
+      <Header user={userInfo} onLogout={signOut} onToggleSidebar={() => setSidebarOpen(!sidebarOpen)} />
+      <Sidebar isOpen={sidebarOpen} userRole={role || 'viewer'} />
 
       <main className={cn('transition-all duration-300 p-6', sidebarOpen ? 'lg:ml-64' : 'lg:ml-16')}>
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
@@ -116,67 +96,69 @@ export default function Alerts() {
             </h1>
             <p className="text-muted-foreground">Konfigurasi notifikasi webhook</p>
           </div>
-          <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-            <DialogTrigger asChild>
-              <Button><Plus className="h-4 w-4 mr-2" />Buat Alert</Button>
-            </DialogTrigger>
-            <DialogContent className="max-w-md">
-              <DialogHeader>
-                <DialogTitle>Buat Alert Baru</DialogTitle>
-                <DialogDescription>Kirim notifikasi saat threshold tercapai</DialogDescription>
-              </DialogHeader>
-              <div className="space-y-4 mt-4">
-                <div>
-                  <Label>Tenant</Label>
-                  <Select value={newAlert.tenant} onValueChange={(v) => setNewAlert({ ...newAlert, tenant: v })}>
-                    <SelectTrigger><SelectValue placeholder="Pilih tenant" /></SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="PT Secure Corp">PT Secure Corp</SelectItem>
-                      <SelectItem value="CV Digital Prima">CV Digital Prima</SelectItem>
-                      <SelectItem value="Startup Inovasi">Startup Inovasi</SelectItem>
-                    </SelectContent>
-                  </Select>
+          {isAdmin && (
+            <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+              <DialogTrigger asChild>
+                <Button><Plus className="h-4 w-4 mr-2" />Buat Alert</Button>
+              </DialogTrigger>
+              <DialogContent className="max-w-md">
+                <DialogHeader>
+                  <DialogTitle>Buat Alert Baru</DialogTitle>
+                  <DialogDescription>Kirim notifikasi saat threshold tercapai</DialogDescription>
+                </DialogHeader>
+                <div className="space-y-4 mt-4">
+                  <div>
+                    <Label>Tenant</Label>
+                    <Select value={newAlert.tenant_id} onValueChange={(v) => setNewAlert({ ...newAlert, tenant_id: v })}>
+                      <SelectTrigger><SelectValue placeholder="Pilih tenant" /></SelectTrigger>
+                      <SelectContent>
+                        {tenants.map(t => (
+                          <SelectItem key={t.id} value={t.id}>{t.name}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div>
+                    <Label>Nama Alert</Label>
+                    <Input placeholder="High Traffic Alert" value={newAlert.name} onChange={(e) => setNewAlert({ ...newAlert, name: e.target.value })} />
+                  </div>
+                  <div>
+                    <Label>Kondisi</Label>
+                    <Select value={newAlert.condition} onValueChange={(v) => setNewAlert({ ...newAlert, condition: v as AlertRule['condition'] })}>
+                      <SelectTrigger><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="requests_per_minute">Request/menit tinggi</SelectItem>
+                        <SelectItem value="brute_force_attempts">Percobaan brute force</SelectItem>
+                        <SelectItem value="critical_events">Event risiko kritis</SelectItem>
+                        <SelectItem value="sensitive_paths">Akses path sensitif</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div>
+                    <Label>Threshold</Label>
+                    <Input type="number" value={newAlert.threshold} onChange={(e) => setNewAlert({ ...newAlert, threshold: parseInt(e.target.value) || 0 })} />
+                  </div>
+                  <div>
+                    <Label>Webhook Type</Label>
+                    <Select value={newAlert.webhook_type} onValueChange={(v) => setNewAlert({ ...newAlert, webhook_type: v as AlertRule['webhook_type'] })}>
+                      <SelectTrigger><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="discord">Discord</SelectItem>
+                        <SelectItem value="telegram">Telegram</SelectItem>
+                        <SelectItem value="slack">Slack</SelectItem>
+                        <SelectItem value="email">Email</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div>
+                    <Label>Webhook URL</Label>
+                    <Input placeholder="https://..." value={newAlert.webhook_url} onChange={(e) => setNewAlert({ ...newAlert, webhook_url: e.target.value })} />
+                  </div>
+                  <Button onClick={handleCreate} className="w-full">Buat Alert</Button>
                 </div>
-                <div>
-                  <Label>Nama Alert</Label>
-                  <Input placeholder="High Traffic Alert" value={newAlert.name} onChange={(e) => setNewAlert({ ...newAlert, name: e.target.value })} />
-                </div>
-                <div>
-                  <Label>Kondisi</Label>
-                  <Select value={newAlert.condition} onValueChange={(v) => setNewAlert({ ...newAlert, condition: v })}>
-                    <SelectTrigger><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="requests_per_minute">Request/menit tinggi</SelectItem>
-                      <SelectItem value="brute_force_attempts">Percobaan brute force</SelectItem>
-                      <SelectItem value="critical_events">Event risiko kritis</SelectItem>
-                      <SelectItem value="sensitive_paths">Akses path sensitif</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div>
-                  <Label>Threshold</Label>
-                  <Input type="number" value={newAlert.threshold} onChange={(e) => setNewAlert({ ...newAlert, threshold: parseInt(e.target.value) })} />
-                </div>
-                <div>
-                  <Label>Webhook Type</Label>
-                  <Select value={newAlert.webhook_type} onValueChange={(v: any) => setNewAlert({ ...newAlert, webhook_type: v })}>
-                    <SelectTrigger><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="discord">Discord</SelectItem>
-                      <SelectItem value="telegram">Telegram</SelectItem>
-                      <SelectItem value="slack">Slack</SelectItem>
-                      <SelectItem value="email">Email</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div>
-                  <Label>Webhook URL</Label>
-                  <Input placeholder="https://..." value={newAlert.webhook_url} onChange={(e) => setNewAlert({ ...newAlert, webhook_url: e.target.value })} />
-                </div>
-                <Button onClick={handleCreate} className="w-full">Buat Alert</Button>
-              </div>
-            </DialogContent>
-          </Dialog>
+              </DialogContent>
+            </Dialog>
+          )}
         </div>
 
         <div className="glass-card p-4 mb-4">
@@ -201,43 +183,69 @@ export default function Alerts() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {filteredAlerts.map((alert) => {
-                const WebhookIcon = webhookIcons[alert.webhook_type];
-                return (
-                  <TableRow key={alert.id}>
-                    <TableCell className="font-medium">{alert.name}</TableCell>
-                    <TableCell className="text-muted-foreground">{alert.tenant_name}</TableCell>
-                    <TableCell>{conditionLabels[alert.condition]}</TableCell>
-                    <TableCell className="font-mono">{alert.threshold}</TableCell>
-                    <TableCell>
-                      <Badge variant="secondary" className="gap-1">
-                        <WebhookIcon className="h-3 w-3" />
-                        {alert.webhook_type}
-                      </Badge>
-                    </TableCell>
-                    <TableCell>{alert.triggered_count}x</TableCell>
-                    <TableCell>
-                      <Switch checked={alert.is_active} onCheckedChange={() => handleToggle(alert.id)} />
-                    </TableCell>
-                    <TableCell>
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <Button variant="ghost" size="icon"><MoreHorizontal className="h-4 w-4" /></Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end">
-                          <DropdownMenuItem onClick={() => handleTest(alert)}>
-                            <Bell className="h-4 w-4 mr-2" />Test Alert
-                          </DropdownMenuItem>
-                          <DropdownMenuItem><Pencil className="h-4 w-4 mr-2" />Edit</DropdownMenuItem>
-                          <DropdownMenuItem className="text-destructive" onClick={() => handleDelete(alert.id, alert.name)}>
-                            <Trash2 className="h-4 w-4 mr-2" />Hapus
-                          </DropdownMenuItem>
-                        </DropdownMenuContent>
-                      </DropdownMenu>
-                    </TableCell>
+              {isLoading ? (
+                Array.from({ length: 3 }).map((_, i) => (
+                  <TableRow key={i}>
+                    <TableCell><Skeleton className="h-4 w-32" /></TableCell>
+                    <TableCell><Skeleton className="h-4 w-24" /></TableCell>
+                    <TableCell><Skeleton className="h-4 w-28" /></TableCell>
+                    <TableCell><Skeleton className="h-4 w-12" /></TableCell>
+                    <TableCell><Skeleton className="h-6 w-16" /></TableCell>
+                    <TableCell><Skeleton className="h-4 w-8" /></TableCell>
+                    <TableCell><Skeleton className="h-6 w-10" /></TableCell>
+                    <TableCell><Skeleton className="h-8 w-8" /></TableCell>
                   </TableRow>
-                );
-              })}
+                ))
+              ) : filteredAlerts.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={8} className="text-center text-muted-foreground py-8">
+                    Tidak ada alert rule ditemukan
+                  </TableCell>
+                </TableRow>
+              ) : (
+                filteredAlerts.map((alert) => {
+                  const WebhookIcon = webhookIcons[alert.webhook_type] || Webhook;
+                  return (
+                    <TableRow key={alert.id}>
+                      <TableCell className="font-medium">{alert.name}</TableCell>
+                      <TableCell className="text-muted-foreground">{alert.tenant_name}</TableCell>
+                      <TableCell>{conditionLabels[alert.condition] || alert.condition}</TableCell>
+                      <TableCell className="font-mono">{alert.threshold}</TableCell>
+                      <TableCell>
+                        <Badge variant="secondary" className="gap-1">
+                          <WebhookIcon className="h-3 w-3" />
+                          {alert.webhook_type}
+                        </Badge>
+                      </TableCell>
+                      <TableCell>{alert.triggered_count}x</TableCell>
+                      <TableCell>
+                        <Switch 
+                          checked={alert.is_active} 
+                          onCheckedChange={(v) => toggleAlert(alert.id, v)}
+                          disabled={!isAdmin}
+                        />
+                      </TableCell>
+                      <TableCell>
+                        {isAdmin && (
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <Button variant="ghost" size="icon"><MoreHorizontal className="h-4 w-4" /></Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end">
+                              <DropdownMenuItem onClick={() => testAlert(alert)}>
+                                <Bell className="h-4 w-4 mr-2" />Test Alert
+                              </DropdownMenuItem>
+                              <DropdownMenuItem className="text-destructive" onClick={() => deleteAlert(alert.id, alert.name)}>
+                                <Trash2 className="h-4 w-4 mr-2" />Hapus
+                              </DropdownMenuItem>
+                            </DropdownMenuContent>
+                          </DropdownMenu>
+                        )}
+                      </TableCell>
+                    </TableRow>
+                  );
+                })
+              )}
             </TableBody>
           </Table>
         </div>

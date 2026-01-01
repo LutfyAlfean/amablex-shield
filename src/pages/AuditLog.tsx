@@ -5,10 +5,12 @@ import { Input } from '@/components/ui/input';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { getMockAuditLogs } from '@/lib/mockData';
+import { Skeleton } from '@/components/ui/skeleton';
 import { cn } from '@/lib/utils';
 import { Search, FileText, LogIn, LogOut, Key, Download, Settings, UserPlus, AlertTriangle } from 'lucide-react';
 import { formatTimestamp } from '@/lib/sanitize';
+import { useAuth } from '@/hooks/useAuth';
+import { useAuditLogs } from '@/hooks/useAuditLogs';
 
 const actionIcons: Record<string, typeof LogIn> = {
   LOGIN_SUCCESS: LogIn,
@@ -34,48 +36,35 @@ const actionLabels: Record<string, string> = {
   USER_CREATED: 'User Dibuat',
 };
 
-const actionVariants: Record<string, 'default' | 'secondary' | 'destructive' | 'low' | 'medium'> = {
-  LOGIN_SUCCESS: 'low',
+const actionVariants: Record<string, 'default' | 'secondary' | 'destructive' | 'outline'> = {
+  LOGIN_SUCCESS: 'default',
   LOGIN_FAILED: 'destructive',
   LOGOUT: 'secondary',
   TOKEN_CREATED: 'default',
-  TOKEN_REVOKED: 'medium',
+  TOKEN_REVOKED: 'outline',
   TOKEN_ROTATED: 'default',
   EXPORT_DATA: 'secondary',
   SETTING_CHANGED: 'secondary',
   USER_CREATED: 'default',
 };
 
-// Extended mock data
-const extendedAuditLogs = [
-  ...getMockAuditLogs(),
-  { id: 'al4', timestamp: new Date(Date.now() - 10800000).toISOString(), user_id: 'u1', user_email: 'admin@example.com', action: 'LOGIN_FAILED', details: 'Login gagal - password salah', ip_address: '203.45.67.89' },
-  { id: 'al5', timestamp: new Date(Date.now() - 14400000).toISOString(), user_id: 'u1', user_email: 'admin@example.com', action: 'TOKEN_REVOKED', details: 'Token "Old Production" direvoke', ip_address: '192.168.1.1' },
-  { id: 'al6', timestamp: new Date(Date.now() - 18000000).toISOString(), user_id: 'u2', user_email: 'viewer@example.com', action: 'LOGIN_SUCCESS', details: 'Login berhasil dari IP 10.0.0.5', ip_address: '10.0.0.5' },
-  { id: 'al7', timestamp: new Date(Date.now() - 21600000).toISOString(), user_id: 'u1', user_email: 'admin@example.com', action: 'SETTING_CHANGED', details: 'Retensi data diubah dari 30 ke 90 hari', ip_address: '192.168.1.1' },
-  { id: 'al8', timestamp: new Date(Date.now() - 25200000).toISOString(), user_id: 'u1', user_email: 'admin@example.com', action: 'USER_CREATED', details: 'User analyst@digital.id dibuat dengan role viewer', ip_address: '192.168.1.1' },
-];
-
 export default function AuditLog() {
+  const { user, profile, role, signOut } = useAuth();
   const [sidebarOpen, setSidebarOpen] = useState(true);
-  const [logs] = useState(extendedAuditLogs);
   const [search, setSearch] = useState('');
   const [actionFilter, setActionFilter] = useState('all');
 
-  const filteredLogs = logs.filter(log => {
-    const matchesSearch = log.user_email.toLowerCase().includes(search.toLowerCase()) ||
-      log.details.toLowerCase().includes(search.toLowerCase()) ||
-      log.ip_address.includes(search);
-    const matchesAction = actionFilter === 'all' || log.action === actionFilter;
-    return matchesSearch && matchesAction;
+  const { logs, isLoading } = useAuditLogs({ 
+    search, 
+    action: actionFilter 
   });
 
-  const user = { email: 'admin@neypot.id', role: 'admin' };
+  const userInfo = { email: profile?.email || user?.email || '', role: role || 'viewer' };
 
   return (
     <div className="min-h-screen bg-background">
-      <Header user={user} onLogout={() => {}} onToggleSidebar={() => setSidebarOpen(!sidebarOpen)} />
-      <Sidebar isOpen={sidebarOpen} userRole="admin" />
+      <Header user={userInfo} onLogout={signOut} onToggleSidebar={() => setSidebarOpen(!sidebarOpen)} />
+      <Sidebar isOpen={sidebarOpen} userRole={role || 'viewer'} />
 
       <main className={cn('transition-all duration-300 p-6', sidebarOpen ? 'lg:ml-64' : 'lg:ml-16')}>
         <div className="mb-6">
@@ -100,10 +89,12 @@ export default function AuditLog() {
                 <SelectItem value="all">Semua Aksi</SelectItem>
                 <SelectItem value="LOGIN_SUCCESS">Login Berhasil</SelectItem>
                 <SelectItem value="LOGIN_FAILED">Login Gagal</SelectItem>
+                <SelectItem value="LOGOUT">Logout</SelectItem>
                 <SelectItem value="TOKEN_CREATED">Token Dibuat</SelectItem>
                 <SelectItem value="TOKEN_REVOKED">Token Direvoke</SelectItem>
                 <SelectItem value="EXPORT_DATA">Export Data</SelectItem>
                 <SelectItem value="SETTING_CHANGED">Setting Diubah</SelectItem>
+                <SelectItem value="USER_CREATED">User Dibuat</SelectItem>
               </SelectContent>
             </Select>
           </div>
@@ -121,26 +112,44 @@ export default function AuditLog() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {filteredLogs.map((log) => {
-                const Icon = actionIcons[log.action] || FileText;
-                const variant = actionVariants[log.action] || 'secondary';
-                return (
-                  <TableRow key={log.id}>
-                    <TableCell className="font-mono text-sm text-muted-foreground whitespace-nowrap">
-                      {formatTimestamp(log.timestamp)}
-                    </TableCell>
-                    <TableCell className="font-medium">{log.user_email}</TableCell>
-                    <TableCell>
-                      <Badge variant={variant} className="gap-1">
-                        <Icon className="h-3 w-3" />
-                        {actionLabels[log.action] || log.action}
-                      </Badge>
-                    </TableCell>
-                    <TableCell className="max-w-[300px] truncate text-muted-foreground">{log.details}</TableCell>
-                    <TableCell className="font-mono text-sm">{log.ip_address}</TableCell>
+              {isLoading ? (
+                Array.from({ length: 5 }).map((_, i) => (
+                  <TableRow key={i}>
+                    <TableCell><Skeleton className="h-4 w-32" /></TableCell>
+                    <TableCell><Skeleton className="h-4 w-40" /></TableCell>
+                    <TableCell><Skeleton className="h-6 w-24" /></TableCell>
+                    <TableCell><Skeleton className="h-4 w-48" /></TableCell>
+                    <TableCell><Skeleton className="h-4 w-24" /></TableCell>
                   </TableRow>
-                );
-              })}
+                ))
+              ) : logs.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={5} className="text-center text-muted-foreground py-8">
+                    Tidak ada audit log ditemukan
+                  </TableCell>
+                </TableRow>
+              ) : (
+                logs.map((log) => {
+                  const Icon = actionIcons[log.action] || FileText;
+                  const variant = actionVariants[log.action] || 'secondary';
+                  return (
+                    <TableRow key={log.id}>
+                      <TableCell className="font-mono text-sm text-muted-foreground whitespace-nowrap">
+                        {formatTimestamp(log.created_at)}
+                      </TableCell>
+                      <TableCell className="font-medium">{log.user_email}</TableCell>
+                      <TableCell>
+                        <Badge variant={variant} className="gap-1">
+                          <Icon className="h-3 w-3" />
+                          {actionLabels[log.action] || log.action}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="max-w-[300px] truncate text-muted-foreground">{log.details || '-'}</TableCell>
+                      <TableCell className="font-mono text-sm">{log.ip_address || '-'}</TableCell>
+                    </TableRow>
+                  );
+                })
+              )}
             </TableBody>
           </Table>
         </div>
