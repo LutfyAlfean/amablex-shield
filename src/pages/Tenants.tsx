@@ -122,35 +122,50 @@ export default function Tenants() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {filteredTenants.map((tenant) => (
-                  <TableRow key={tenant.id}>
-                    <TableCell className="font-medium">{tenant.name}</TableCell>
-                    <TableCell className="text-muted-foreground">{new Date(tenant.created_at).toLocaleDateString('id-ID')}</TableCell>
-                    <TableCell>{tenant.retention_days} hari</TableCell>
-                    <TableCell>
-                      <Badge 
-                        variant={tenant.is_active ? 'low' : 'secondary'} 
-                        className="cursor-pointer" 
-                        onClick={() => handleToggleActive(tenant.id, tenant.is_active)}
-                      >
-                        {tenant.is_active ? 'Aktif' : 'Nonaktif'}
-                      </Badge>
-                    </TableCell>
-                    <TableCell>
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <Button variant="ghost" size="icon"><MoreHorizontal className="h-4 w-4" /></Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end">
-                          <DropdownMenuItem><Pencil className="h-4 w-4 mr-2" />Edit</DropdownMenuItem>
-                          <DropdownMenuItem className="text-destructive" onClick={() => handleDelete(tenant.id, tenant.name)}>
-                            <Trash2 className="h-4 w-4 mr-2" />Hapus
-                          </DropdownMenuItem>
-                        </DropdownMenuContent>
-                      </DropdownMenu>
+                {filteredTenants.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={5} className="text-center text-muted-foreground py-8">
+                      {tenants.length === 0 
+                        ? 'Belum ada tenant. Buat tenant pertama untuk mulai.' 
+                        : 'Tidak ada tenant yang cocok dengan pencarian'}
                     </TableCell>
                   </TableRow>
-                ))}
+                ) : (
+                  filteredTenants.map((tenant) => (
+                    <TableRow key={tenant.id}>
+                      <TableCell className="font-medium">{tenant.name}</TableCell>
+                      <TableCell className="text-muted-foreground">{new Date(tenant.created_at).toLocaleDateString('id-ID')}</TableCell>
+                      <TableCell>{tenant.retention_days} hari</TableCell>
+                      <TableCell>
+                        <Badge 
+                          variant={tenant.is_active ? 'default' : 'secondary'} 
+                          className={cn(
+                            "cursor-pointer",
+                            tenant.is_active && "bg-green-500/20 text-green-600 border-green-500/30 hover:bg-green-500/30"
+                          )}
+                          onClick={() => role === 'admin' && handleToggleActive(tenant.id, tenant.is_active)}
+                        >
+                          {tenant.is_active ? 'Aktif' : 'Nonaktif'}
+                        </Badge>
+                      </TableCell>
+                      <TableCell>
+                        {role === 'admin' && (
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <Button variant="ghost" size="icon"><MoreHorizontal className="h-4 w-4" /></Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end">
+                              <DropdownMenuItem><Pencil className="h-4 w-4 mr-2" />Edit</DropdownMenuItem>
+                              <DropdownMenuItem className="text-destructive" onClick={() => handleDelete(tenant.id, tenant.name)}>
+                                <Trash2 className="h-4 w-4 mr-2" />Hapus
+                              </DropdownMenuItem>
+                            </DropdownMenuContent>
+                          </DropdownMenu>
+                        )}
+                      </TableCell>
+                    </TableRow>
+                  ))
+                )}
               </TableBody>
             </Table>
           )}

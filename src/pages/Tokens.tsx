@@ -8,81 +8,73 @@ import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogDescription } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Skeleton } from '@/components/ui/skeleton';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
 import { Plus, Search, MoreHorizontal, Trash2, Key, Copy, RefreshCw, Clock, AlertTriangle } from 'lucide-react';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-
-interface ApiToken {
-  id: string;
-  tenant_name: string;
-  name: string;
-  token_preview: string;
-  created_at: string;
-  expires_at?: string;
-  last_used_at?: string;
-  is_active: boolean;
-  grace_period_until?: string;
-}
-
-const mockTokens: ApiToken[] = [
-  { id: 'tk1', tenant_name: 'PT Secure Corp', name: 'Production', token_preview: 'npt_***abc123', created_at: '2024-01-15', last_used_at: '2024-12-16 10:30', is_active: true },
-  { id: 'tk2', tenant_name: 'PT Secure Corp', name: 'Staging', token_preview: 'npt_***def456', created_at: '2024-02-20', last_used_at: '2024-12-15 14:22', is_active: true },
-  { id: 'tk3', tenant_name: 'CV Digital Prima', name: 'Main', token_preview: 'npt_***ghi789', created_at: '2024-03-10', expires_at: '2025-03-10', last_used_at: '2024-12-14', is_active: true },
-  { id: 'tk4', tenant_name: 'Startup Inovasi', name: 'Dev', token_preview: 'npt_***jkl012', created_at: '2024-04-01', is_active: false },
-];
+import { ApiTestGuide } from '@/components/onboarding/ApiTestGuide';
+import { useAuth } from '@/hooks/useAuth';
+import { useApiTokens } from '@/hooks/useApiTokens';
+import { useTenants } from '@/hooks/useTenants';
 
 export default function Tokens() {
+  const { user, profile, role, signOut } = useAuth();
+  const { tokens, isLoading, createToken, revokeToken, rotateToken, deleteToken } = useApiTokens();
+  const { tenants } = useTenants();
   const [sidebarOpen, setSidebarOpen] = useState(true);
-  const [tokens, setTokens] = useState<ApiToken[]>(mockTokens);
   const [search, setSearch] = useState('');
   const [dialogOpen, setDialogOpen] = useState(false);
   const [newTokenDialog, setNewTokenDialog] = useState(false);
   const [generatedToken, setGeneratedToken] = useState('');
-  const [newToken, setNewToken] = useState({ tenant: '', name: '', expires: '' });
+  const [selectedTenantName, setSelectedTenantName] = useState('');
+  const [newToken, setNewToken] = useState({ tenant_id: '', name: '', expires: '' });
+  const [isCreating, setIsCreating] = useState(false);
 
   const filteredTokens = tokens.filter(t => 
     t.name.toLowerCase().includes(search.toLowerCase()) ||
-    t.tenant_name.toLowerCase().includes(search.toLowerCase())
+    (t.tenant_name || '').toLowerCase().includes(search.toLowerCase())
   );
 
-  const handleCreate = () => {
-    if (!newToken.tenant || !newToken.name) {
+  const handleCreate = async () => {
+    if (!newToken.tenant_id || !newToken.name) {
       toast.error('Tenant dan nama token wajib diisi');
       return;
     }
-    const fullToken = `npt_${Math.random().toString(36).substring(2, 15)}${Math.random().toString(36).substring(2, 15)}`;
-    const token: ApiToken = {
-      id: `tk${Date.now()}`,
-      tenant_name: newToken.tenant,
-      name: newToken.name,
-      token_preview: `npt_***${fullToken.slice(-6)}`,
-      created_at: new Date().toISOString().split('T')[0],
-      expires_at: newToken.expires || undefined,
-      is_active: true
-    };
-    setTokens([...tokens, token]);
-    setGeneratedToken(fullToken);
-    setNewToken({ tenant: '', name: '', expires: '' });
-    setDialogOpen(false);
-    setNewTokenDialog(true);
+    
+    setIsCreating(true);
+    const { error, token } = await createToken(
+      newToken.tenant_id, 
+      newToken.name, 
+      newToken.expires || undefined
+    );
+    setIsCreating(false);
+
+    if (!error && token) {
+      const tenant = tenants.find(t => t.id === newToken.tenant_id);
+      setSelectedTenantName(tenant?.name || '');
+      setGeneratedToken(token);
+      setNewToken({ tenant_id: '', name: '', expires: '' });
+      setDialogOpen(false);
+      setNewTokenDialog(true);
+    }
   };
 
-  const handleRevoke = (id: string, name: string) => {
-    setTokens(tokens.map(t => t.id === id ? { ...t, is_active: false } : t));
-    toast.success(`Token "${name}" berhasil direvoke`);
+  const handleRevoke = async (id: string, name: string) => {
+    await revokeToken(id, name);
   };
 
-  const handleRotate = (id: string, name: string) => {
-    const graceDate = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
-    setTokens(tokens.map(t => t.id === id ? { ...t, grace_period_until: graceDate } : t));
-    toast.success(`Token "${name}" akan dirotasi. Grace period 24 jam dimulai.`);
+  const handleRotate = async (id: string, name: string) => {
+    const { token } = await rotateToken(id, name);
+    if (token) {
+      setGeneratedToken(token);
+      setNewTokenDialog(true);
+    }
   };
 
-  const handleDelete = (id: string, name: string) => {
-    setTokens(tokens.filter(t => t.id !== id));
-    toast.success(`Token "${name}" berhasil dihapus`);
+  const handleDelete = async (id: string, name: string) => {
+    await deleteToken(id, name);
   };
 
   const copyToken = () => {
@@ -90,12 +82,13 @@ export default function Tokens() {
     toast.success('Token disalin ke clipboard');
   };
 
-  const user = { email: 'admin@neypot.id', role: 'admin' };
+  const userInfo = { email: profile?.email || user?.email || '', role: role || 'viewer' };
+  const isAdmin = role === 'admin';
 
   return (
     <div className="min-h-screen bg-background">
-      <Header user={user} onLogout={() => {}} onToggleSidebar={() => setSidebarOpen(!sidebarOpen)} />
-      <Sidebar isOpen={sidebarOpen} userRole="admin" />
+      <Header user={userInfo} onLogout={signOut} onToggleSidebar={() => setSidebarOpen(!sidebarOpen)} />
+      <Sidebar isOpen={sidebarOpen} userRole={role || 'viewer'} />
 
       <main className={cn('transition-all duration-300 p-6', sidebarOpen ? 'lg:ml-64' : 'lg:ml-16')}>
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
@@ -106,61 +99,70 @@ export default function Tokens() {
             </h1>
             <p className="text-muted-foreground">Kelola token ingest untuk honeypot</p>
           </div>
-          <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-            <DialogTrigger asChild>
-              <Button><Plus className="h-4 w-4 mr-2" />Buat Token</Button>
-            </DialogTrigger>
-            <DialogContent>
-              <DialogHeader>
-                <DialogTitle>Buat Token Baru</DialogTitle>
-                <DialogDescription>Token akan ditampilkan sekali saja. Pastikan untuk menyimpannya.</DialogDescription>
-              </DialogHeader>
-              <div className="space-y-4 mt-4">
-                <div>
-                  <Label>Tenant</Label>
-                  <Select value={newToken.tenant} onValueChange={(v) => setNewToken({ ...newToken, tenant: v })}>
-                    <SelectTrigger>
-                      <SelectValue placeholder="Pilih tenant" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="PT Secure Corp">PT Secure Corp</SelectItem>
-                      <SelectItem value="CV Digital Prima">CV Digital Prima</SelectItem>
-                      <SelectItem value="Startup Inovasi">Startup Inovasi</SelectItem>
-                    </SelectContent>
-                  </Select>
+          {isAdmin && (
+            <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+              <DialogTrigger asChild>
+                <Button><Plus className="h-4 w-4 mr-2" />Buat Token</Button>
+              </DialogTrigger>
+              <DialogContent>
+                <DialogHeader>
+                  <DialogTitle>Buat Token Baru</DialogTitle>
+                  <DialogDescription>Token akan ditampilkan sekali saja. Pastikan untuk menyimpannya.</DialogDescription>
+                </DialogHeader>
+                <div className="space-y-4 mt-4">
+                  <div>
+                    <Label>Tenant</Label>
+                    <Select value={newToken.tenant_id} onValueChange={(v) => setNewToken({ ...newToken, tenant_id: v })}>
+                      <SelectTrigger>
+                        <SelectValue placeholder="Pilih tenant" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {tenants.map(t => (
+                          <SelectItem key={t.id} value={t.id}>{t.name}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    {tenants.length === 0 && (
+                      <p className="text-xs text-muted-foreground mt-1">
+                        Belum ada tenant. Buat tenant terlebih dahulu.
+                      </p>
+                    )}
+                  </div>
+                  <div>
+                    <Label>Nama Token</Label>
+                    <Input 
+                      placeholder="Production, Staging, etc" 
+                      value={newToken.name}
+                      onChange={(e) => setNewToken({ ...newToken, name: e.target.value })}
+                    />
+                  </div>
+                  <div>
+                    <Label>Expiry (opsional)</Label>
+                    <Input 
+                      type="date"
+                      value={newToken.expires}
+                      onChange={(e) => setNewToken({ ...newToken, expires: e.target.value })}
+                    />
+                  </div>
+                  <Button onClick={handleCreate} className="w-full" disabled={isCreating || tenants.length === 0}>
+                    {isCreating ? 'Membuat...' : 'Buat Token'}
+                  </Button>
                 </div>
-                <div>
-                  <Label>Nama Token</Label>
-                  <Input 
-                    placeholder="Production, Staging, etc" 
-                    value={newToken.name}
-                    onChange={(e) => setNewToken({ ...newToken, name: e.target.value })}
-                  />
-                </div>
-                <div>
-                  <Label>Expiry (opsional)</Label>
-                  <Input 
-                    type="date"
-                    value={newToken.expires}
-                    onChange={(e) => setNewToken({ ...newToken, expires: e.target.value })}
-                  />
-                </div>
-                <Button onClick={handleCreate} className="w-full">Buat Token</Button>
-              </div>
-            </DialogContent>
-          </Dialog>
+              </DialogContent>
+            </Dialog>
+          )}
         </div>
 
         {/* New Token Display Dialog */}
         <Dialog open={newTokenDialog} onOpenChange={setNewTokenDialog}>
-          <DialogContent>
+          <DialogContent className="max-w-2xl">
             <DialogHeader>
               <DialogTitle>Token Berhasil Dibuat</DialogTitle>
               <DialogDescription>Salin token ini sekarang. Token tidak akan ditampilkan lagi.</DialogDescription>
             </DialogHeader>
-            <Alert className="mt-4 border-warning/50 bg-warning/10">
-              <AlertTriangle className="h-4 w-4 text-warning" />
-              <AlertDescription className="text-warning">
+            <Alert className="mt-4 border-yellow-500/50 bg-yellow-500/10">
+              <AlertTriangle className="h-4 w-4 text-yellow-500" />
+              <AlertDescription className="text-yellow-600 dark:text-yellow-400">
                 Token ini hanya ditampilkan sekali. Simpan di tempat aman!
               </AlertDescription>
             </Alert>
@@ -170,6 +172,11 @@ export default function Tokens() {
             <Button onClick={copyToken} className="w-full mt-4">
               <Copy className="h-4 w-4 mr-2" />Salin Token
             </Button>
+            
+            {/* Show API Test Guide */}
+            <div className="mt-6">
+              <ApiTestGuide token={generatedToken} tenantName={selectedTenantName} />
+            </div>
           </DialogContent>
         </Dialog>
 
@@ -194,44 +201,72 @@ export default function Tokens() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {filteredTokens.map((token) => (
-                <TableRow key={token.id}>
-                  <TableCell className="font-medium">{token.name}</TableCell>
-                  <TableCell className="text-muted-foreground">{token.tenant_name}</TableCell>
-                  <TableCell className="font-mono text-sm">{token.token_preview}</TableCell>
-                  <TableCell className="text-muted-foreground">{token.created_at}</TableCell>
-                  <TableCell className="text-muted-foreground">{token.last_used_at || '-'}</TableCell>
-                  <TableCell>
-                    {token.grace_period_until ? (
-                      <Badge variant="medium" className="gap-1">
-                        <Clock className="h-3 w-3" />Grace Period
-                      </Badge>
-                    ) : token.is_active ? (
-                      <Badge variant="low">Aktif</Badge>
-                    ) : (
-                      <Badge variant="secondary">Revoked</Badge>
-                    )}
-                  </TableCell>
-                  <TableCell>
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button variant="ghost" size="icon"><MoreHorizontal className="h-4 w-4" /></Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end">
-                        <DropdownMenuItem onClick={() => handleRotate(token.id, token.name)} disabled={!token.is_active}>
-                          <RefreshCw className="h-4 w-4 mr-2" />Rotate (24h Grace)
-                        </DropdownMenuItem>
-                        <DropdownMenuItem onClick={() => handleRevoke(token.id, token.name)} disabled={!token.is_active}>
-                          <Key className="h-4 w-4 mr-2" />Revoke
-                        </DropdownMenuItem>
-                        <DropdownMenuItem className="text-destructive" onClick={() => handleDelete(token.id, token.name)}>
-                          <Trash2 className="h-4 w-4 mr-2" />Hapus
-                        </DropdownMenuItem>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
+              {isLoading ? (
+                Array.from({ length: 3 }).map((_, i) => (
+                  <TableRow key={i}>
+                    <TableCell><Skeleton className="h-4 w-24" /></TableCell>
+                    <TableCell><Skeleton className="h-4 w-32" /></TableCell>
+                    <TableCell><Skeleton className="h-4 w-28" /></TableCell>
+                    <TableCell><Skeleton className="h-4 w-20" /></TableCell>
+                    <TableCell><Skeleton className="h-4 w-24" /></TableCell>
+                    <TableCell><Skeleton className="h-6 w-16" /></TableCell>
+                    <TableCell><Skeleton className="h-8 w-8" /></TableCell>
+                  </TableRow>
+                ))
+              ) : filteredTokens.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={7} className="text-center text-muted-foreground py-8">
+                    {tokens.length === 0 
+                      ? 'Belum ada token. Buat token pertama untuk mulai.' 
+                      : 'Tidak ada token yang cocok dengan pencarian'}
                   </TableCell>
                 </TableRow>
-              ))}
+              ) : (
+                filteredTokens.map((token) => (
+                  <TableRow key={token.id}>
+                    <TableCell className="font-medium">{token.name}</TableCell>
+                    <TableCell className="text-muted-foreground">{token.tenant_name || '-'}</TableCell>
+                    <TableCell className="font-mono text-sm">{token.token_preview}</TableCell>
+                    <TableCell className="text-muted-foreground">
+                      {new Date(token.created_at).toLocaleDateString('id-ID')}
+                    </TableCell>
+                    <TableCell className="text-muted-foreground">
+                      {token.last_used_at ? new Date(token.last_used_at).toLocaleString('id-ID') : '-'}
+                    </TableCell>
+                    <TableCell>
+                      {token.grace_period_until ? (
+                        <Badge variant="outline" className="gap-1 border-yellow-500 text-yellow-600">
+                          <Clock className="h-3 w-3" />Grace Period
+                        </Badge>
+                      ) : token.is_active ? (
+                        <Badge variant="default" className="bg-green-500/20 text-green-600 border-green-500/30">Aktif</Badge>
+                      ) : (
+                        <Badge variant="secondary">Revoked</Badge>
+                      )}
+                    </TableCell>
+                    <TableCell>
+                      {isAdmin && (
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button variant="ghost" size="icon"><MoreHorizontal className="h-4 w-4" /></Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end">
+                            <DropdownMenuItem onClick={() => handleRotate(token.id, token.name)} disabled={!token.is_active}>
+                              <RefreshCw className="h-4 w-4 mr-2" />Rotate (24h Grace)
+                            </DropdownMenuItem>
+                            <DropdownMenuItem onClick={() => handleRevoke(token.id, token.name)} disabled={!token.is_active}>
+                              <Key className="h-4 w-4 mr-2" />Revoke
+                            </DropdownMenuItem>
+                            <DropdownMenuItem className="text-destructive" onClick={() => handleDelete(token.id, token.name)}>
+                              <Trash2 className="h-4 w-4 mr-2" />Hapus
+                            </DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      )}
+                    </TableCell>
+                  </TableRow>
+                ))
+              )}
             </TableBody>
           </Table>
         </div>
