@@ -6,9 +6,13 @@ import { StatsCard } from '@/components/dashboard/StatsCard';
 import { EventsTable } from '@/components/dashboard/EventsTable';
 import { EventDetailSheet } from '@/components/dashboard/EventDetailSheet';
 import { FilterBar } from '@/components/dashboard/FilterBar';
+import { OnboardingGuide } from '@/components/onboarding/OnboardingGuide';
+import { ApiTestGuide } from '@/components/onboarding/ApiTestGuide';
 import { useAuth } from '@/hooks/useAuth';
 import { useEvents } from '@/hooks/useEvents';
 import { useAnalytics } from '@/hooks/useAnalytics';
+import { useTenants } from '@/hooks/useTenants';
+import { useApiTokens } from '@/hooks/useApiTokens';
 import { HoneypotEvent, EventFilters, SavedView } from '@/types/honeypot';
 import { cn } from '@/lib/utils';
 import { Activity, AlertTriangle, Globe, Shield, Loader2 } from 'lucide-react';
@@ -109,6 +113,9 @@ export default function Dashboard() {
         'transition-all duration-300 p-6',
         sidebarOpen ? 'lg:ml-64' : 'lg:ml-16'
       )}>
+        {/* Onboarding Guide */}
+        <OnboardingGuide />
+
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
           <StatsCard
             title="Event Hari Ini"
@@ -154,15 +161,18 @@ export default function Dashboard() {
               <p className="text-muted-foreground">Memuat events...</p>
             </div>
           ) : transformedEvents.length === 0 ? (
-            <div className="glass-card p-12 text-center">
-              <Shield className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
-              <h3 className="text-lg font-medium mb-2">Belum ada events</h3>
-              <p className="text-muted-foreground">
-                Events akan muncul saat honeypot menerima request.
-              </p>
+            <div className="space-y-6">
+              <div className="glass-card p-12 text-center">
+                <Shield className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
+                <h3 className="text-lg font-medium mb-2">Belum ada events</h3>
+                <p className="text-muted-foreground mb-4">
+                  Events akan muncul saat honeypot menerima request.
+                </p>
+              </div>
+              <ApiTestGuide />
             </div>
           ) : (
-            <EventsTable 
+            <EventsTable
               events={transformedEvents} 
               onViewDetails={handleViewDetails}
             />
