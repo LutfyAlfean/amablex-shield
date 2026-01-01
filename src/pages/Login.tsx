@@ -1,41 +1,37 @@
 import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Navigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Shield, Eye, EyeOff, Lock, Mail, AlertCircle, User, ArrowLeft } from 'lucide-react';
+import { Shield, Eye, EyeOff, Lock, Mail, AlertCircle, User, ArrowLeft, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Link } from 'react-router-dom';
+import { useAuth } from '@/hooks/useAuth';
 
 export default function Login() {
   const navigate = useNavigate();
+  const { signIn, signUp, user, isLoading: authLoading } = useAuth();
   const [tab, setTab] = useState('login');
   
-  // Login state
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
-  const [attempts, setAttempts] = useState(0);
-  const [lockedUntil, setLockedUntil] = useState<Date | null>(null);
 
-  // Register state
   const [regName, setRegName] = useState('');
   const [regEmail, setRegEmail] = useState('');
   const [regPassword, setRegPassword] = useState('');
   const [regConfirm, setRegConfirm] = useState('');
 
+  if (user && !authLoading) {
+    return <Navigate to="/dashboard" replace />;
+  }
+
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
-
-    if (lockedUntil && new Date() < lockedUntil) {
-      const remaining = Math.ceil((lockedUntil.getTime() - Date.now()) / 1000);
-      setError(`Akun terkunci. Coba lagi dalam ${remaining} detik.`);
-      return;
-    }
 
     if (!email || !password) {
       setError('Email dan password wajib diisi');
@@ -43,26 +39,17 @@ export default function Login() {
     }
 
     setIsLoading(true);
-    await new Promise(resolve => setTimeout(resolve, 1000));
+    const { error: signInError } = await signIn(email, password);
 
-    // Demo: accept demo credentials
-    if (email === 'admin@neypot.id' && password === 'admin123') {
-      toast.success('Login berhasil!');
-      navigate('/dashboard');
-    } else if (email === 'viewer@neypot.id' && password === 'viewer123') {
-      toast.success('Login berhasil!');
-      navigate('/dashboard');
-    } else {
-      const newAttempts = attempts + 1;
-      setAttempts(newAttempts);
-
-      if (newAttempts >= 5) {
-        const lockTime = new Date(Date.now() + 30000);
-        setLockedUntil(lockTime);
-        setError('Terlalu banyak percobaan. Akun dikunci 30 detik.');
+    if (signInError) {
+      if (signInError.message.includes('Invalid login credentials')) {
+        setError('Email atau password salah');
       } else {
-        setError(`Kredensial tidak valid. ${5 - newAttempts} percobaan tersisa.`);
+        setError(signInError.message);
       }
+    } else {
+      toast.success('Login berhasil!');
+      navigate('/dashboard');
     }
 
     setIsLoading(false);
@@ -87,33 +74,45 @@ export default function Login() {
     }
 
     setIsLoading(true);
-    await new Promise(resolve => setTimeout(resolve, 1000));
+    const { error: signUpError } = await signUp(regEmail, regPassword, regName);
     
-    toast.success('Registrasi berhasil! Silakan login.');
-    setTab('login');
-    setEmail(regEmail);
+    if (signUpError) {
+      if (signUpError.message.includes('already registered')) {
+        toast.error('Email sudah terdaftar');
+      } else {
+        toast.error(signUpError.message);
+      }
+    } else {
+      toast.success('Registrasi berhasil!');
+      navigate('/dashboard');
+    }
+    
     setIsLoading(false);
   };
 
+  if (authLoading) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-background flex items-center justify-center p-4">
-      {/* Background Effects */}
       <div className="fixed inset-0 overflow-hidden pointer-events-none">
         <div className="absolute top-1/4 -left-20 w-72 h-72 bg-primary/10 rounded-full blur-3xl" />
         <div className="absolute bottom-1/4 -right-20 w-96 h-96 bg-primary/5 rounded-full blur-3xl" />
-        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] bg-primary/5 rounded-full blur-3xl" />
       </div>
 
       <div className="w-full max-w-md relative">
-        {/* Back to Landing */}
         <Link to="/" className="inline-flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground mb-6 transition-colors">
           <ArrowLeft className="h-4 w-4" />
           Kembali ke Beranda
         </Link>
 
-        {/* Logo */}
         <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center h-16 w-16 rounded-2xl bg-primary/10 border border-primary/20 mb-4 animate-pulse-glow">
+          <div className="inline-flex items-center justify-center h-16 w-16 rounded-2xl bg-primary/10 border border-primary/20 mb-4">
             <Shield className="h-8 w-8 text-primary" />
           </div>
           <h1 className="text-2xl font-bold">
@@ -122,7 +121,6 @@ export default function Login() {
           <p className="text-muted-foreground mt-1">Honeypot Monitoring System</p>
         </div>
 
-        {/* Auth Card */}
         <div className="glass-card p-6">
           <Tabs value={tab} onValueChange={setTab}>
             <TabsList className="grid w-full grid-cols-2 mb-6">
@@ -180,26 +178,16 @@ export default function Login() {
                   </div>
                 )}
 
-                <Button
-                  type="submit"
-                  className="w-full"
-                  disabled={isLoading || (lockedUntil !== null && new Date() < lockedUntil)}
-                >
+                <Button type="submit" className="w-full" disabled={isLoading}>
                   {isLoading ? (
                     <span className="flex items-center gap-2">
-                      <div className="h-4 w-4 border-2 border-current border-t-transparent rounded-full animate-spin" />
+                      <Loader2 className="h-4 w-4 animate-spin" />
                       Memproses...
                     </span>
                   ) : (
                     'Masuk'
                   )}
                 </Button>
-
-                <div className="text-center">
-                  <p className="text-xs text-muted-foreground">
-                    Demo: admin@neypot.id / admin123
-                  </p>
-                </div>
               </form>
             </TabsContent>
 
@@ -209,14 +197,7 @@ export default function Login() {
                   <Label htmlFor="regName">Nama Lengkap</Label>
                   <div className="relative">
                     <User className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                    <Input
-                      id="regName"
-                      placeholder="John Doe"
-                      value={regName}
-                      onChange={(e) => setRegName(e.target.value)}
-                      className="pl-10 bg-background/50"
-                      disabled={isLoading}
-                    />
+                    <Input id="regName" placeholder="John Doe" value={regName} onChange={(e) => setRegName(e.target.value)} className="pl-10 bg-background/50" disabled={isLoading} />
                   </div>
                 </div>
 
@@ -224,15 +205,7 @@ export default function Login() {
                   <Label htmlFor="regEmail">Email</Label>
                   <div className="relative">
                     <Mail className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                    <Input
-                      id="regEmail"
-                      type="email"
-                      placeholder="email@example.com"
-                      value={regEmail}
-                      onChange={(e) => setRegEmail(e.target.value)}
-                      className="pl-10 bg-background/50"
-                      disabled={isLoading}
-                    />
+                    <Input id="regEmail" type="email" placeholder="email@example.com" value={regEmail} onChange={(e) => setRegEmail(e.target.value)} className="pl-10 bg-background/50" disabled={isLoading} />
                   </div>
                 </div>
 
@@ -240,15 +213,7 @@ export default function Login() {
                   <Label htmlFor="regPassword">Password</Label>
                   <div className="relative">
                     <Lock className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                    <Input
-                      id="regPassword"
-                      type="password"
-                      placeholder="Minimal 8 karakter"
-                      value={regPassword}
-                      onChange={(e) => setRegPassword(e.target.value)}
-                      className="pl-10 bg-background/50"
-                      disabled={isLoading}
-                    />
+                    <Input id="regPassword" type="password" placeholder="Minimal 8 karakter" value={regPassword} onChange={(e) => setRegPassword(e.target.value)} className="pl-10 bg-background/50" disabled={isLoading} />
                   </div>
                 </div>
 
@@ -256,38 +221,22 @@ export default function Login() {
                   <Label htmlFor="regConfirm">Konfirmasi Password</Label>
                   <div className="relative">
                     <Lock className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                    <Input
-                      id="regConfirm"
-                      type="password"
-                      placeholder="Ulangi password"
-                      value={regConfirm}
-                      onChange={(e) => setRegConfirm(e.target.value)}
-                      className="pl-10 bg-background/50"
-                      disabled={isLoading}
-                    />
+                    <Input id="regConfirm" type="password" placeholder="Ulangi password" value={regConfirm} onChange={(e) => setRegConfirm(e.target.value)} className="pl-10 bg-background/50" disabled={isLoading} />
                   </div>
                 </div>
 
                 <Button type="submit" className="w-full" disabled={isLoading}>
-                  {isLoading ? (
-                    <span className="flex items-center gap-2">
-                      <div className="h-4 w-4 border-2 border-current border-t-transparent rounded-full animate-spin" />
-                      Memproses...
-                    </span>
-                  ) : (
-                    'Daftar'
-                  )}
+                  {isLoading ? <><Loader2 className="h-4 w-4 animate-spin mr-2" />Memproses...</> : 'Daftar'}
                 </Button>
               </form>
             </TabsContent>
           </Tabs>
         </div>
 
-        {/* Security Notice */}
         <div className="mt-6 text-center">
           <div className="inline-flex items-center gap-2 text-xs text-muted-foreground">
             <Lock className="h-3 w-3" />
-            Koneksi terenkripsi • Rate limiting aktif
+            Koneksi terenkripsi
           </div>
         </div>
       </div>

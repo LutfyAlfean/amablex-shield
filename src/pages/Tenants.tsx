@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Header } from '@/components/layout/Header';
 import { Sidebar } from '@/components/layout/Sidebar';
 import { Button } from '@/components/ui/button';
@@ -8,15 +9,17 @@ import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { getMockTenants } from '@/lib/mockData';
+import { useAuth } from '@/hooks/useAuth';
+import { useTenants } from '@/hooks/useTenants';
 import { cn } from '@/lib/utils';
-import { toast } from 'sonner';
-import { Plus, Search, MoreHorizontal, Pencil, Trash2, Server, Users, Key } from 'lucide-react';
+import { Plus, Search, MoreHorizontal, Pencil, Trash2, Server, Loader2 } from 'lucide-react';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 
 export default function Tenants() {
+  const navigate = useNavigate();
+  const { user, profile, role, signOut } = useAuth();
+  const { tenants, isLoading, createTenant, updateTenant, deleteTenant } = useTenants();
   const [sidebarOpen, setSidebarOpen] = useState(true);
-  const [tenants, setTenants] = useState(getMockTenants());
   const [search, setSearch] = useState('');
   const [dialogOpen, setDialogOpen] = useState(false);
   const [newTenant, setNewTenant] = useState({ name: '', retention_days: '30' });
@@ -25,42 +28,32 @@ export default function Tenants() {
     t.name.toLowerCase().includes(search.toLowerCase())
   );
 
-  const handleCreate = () => {
-    if (!newTenant.name) {
-      toast.error('Nama tenant wajib diisi');
-      return;
-    }
-    const tenant = {
-      id: `t${Date.now()}`,
-      name: newTenant.name,
-      created_at: new Date().toISOString().split('T')[0],
-      retention_days: parseInt(newTenant.retention_days),
-      is_active: true,
-      token_count: 0
-    };
-    setTenants([...tenants, tenant]);
+  const handleCreate = async () => {
+    if (!newTenant.name) return;
+    await createTenant(newTenant.name, parseInt(newTenant.retention_days));
     setNewTenant({ name: '', retention_days: '30' });
     setDialogOpen(false);
-    toast.success(`Tenant "${tenant.name}" berhasil dibuat`);
   };
 
-  const handleDelete = (id: string, name: string) => {
-    setTenants(tenants.filter(t => t.id !== id));
-    toast.success(`Tenant "${name}" berhasil dihapus`);
+  const handleToggleActive = async (id: string, currentStatus: boolean) => {
+    await updateTenant(id, { is_active: !currentStatus });
   };
 
-  const handleToggleActive = (id: string) => {
-    setTenants(tenants.map(t => 
-      t.id === id ? { ...t, is_active: !t.is_active } : t
-    ));
+  const handleDelete = async (id: string, name: string) => {
+    await deleteTenant(id, name);
   };
 
-  const user = { email: 'admin@neypot.id', role: 'admin' };
+  const handleLogout = async () => {
+    await signOut();
+    navigate('/login');
+  };
+
+  const userInfo = { email: user?.email || profile?.email || 'User', role: role || 'viewer' };
 
   return (
     <div className="min-h-screen bg-background">
-      <Header user={user} onLogout={() => {}} onToggleSidebar={() => setSidebarOpen(!sidebarOpen)} />
-      <Sidebar isOpen={sidebarOpen} userRole="admin" />
+      <Header user={userInfo} onLogout={handleLogout} onToggleSidebar={() => setSidebarOpen(!sidebarOpen)} />
+      <Sidebar isOpen={sidebarOpen} userRole={role || 'viewer'} />
 
       <main className={cn('transition-all duration-300 p-6', sidebarOpen ? 'lg:ml-64' : 'lg:ml-16')}>
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
@@ -91,9 +84,7 @@ export default function Tenants() {
                 <div>
                   <Label>Retensi Data</Label>
                   <Select value={newTenant.retention_days} onValueChange={(v) => setNewTenant({ ...newTenant, retention_days: v })}>
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
                     <SelectContent>
                       <SelectItem value="7">7 hari</SelectItem>
                       <SelectItem value="30">30 hari</SelectItem>
@@ -115,53 +106,54 @@ export default function Tenants() {
         </div>
 
         <div className="glass-card overflow-hidden">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Nama Tenant</TableHead>
-                <TableHead>Dibuat</TableHead>
-                <TableHead>Retensi</TableHead>
-                <TableHead>Token</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead className="w-12"></TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {filteredTenants.map((tenant) => (
-                <TableRow key={tenant.id}>
-                  <TableCell className="font-medium">{tenant.name}</TableCell>
-                  <TableCell className="text-muted-foreground">{tenant.created_at}</TableCell>
-                  <TableCell>{tenant.retention_days} hari</TableCell>
-                  <TableCell>
-                    <div className="flex items-center gap-1">
-                      <Key className="h-3 w-3 text-muted-foreground" />
-                      {tenant.token_count}
-                    </div>
-                  </TableCell>
-                  <TableCell>
-                    <Badge variant={tenant.is_active ? 'low' : 'secondary'} className="cursor-pointer" onClick={() => handleToggleActive(tenant.id)}>
-                      {tenant.is_active ? 'Aktif' : 'Nonaktif'}
-                    </Badge>
-                  </TableCell>
-                  <TableCell>
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button variant="ghost" size="icon"><MoreHorizontal className="h-4 w-4" /></Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end">
-                        <DropdownMenuItem><Pencil className="h-4 w-4 mr-2" />Edit</DropdownMenuItem>
-                        <DropdownMenuItem><Key className="h-4 w-4 mr-2" />Kelola Token</DropdownMenuItem>
-                        <DropdownMenuItem><Users className="h-4 w-4 mr-2" />Kelola User</DropdownMenuItem>
-                        <DropdownMenuItem className="text-destructive" onClick={() => handleDelete(tenant.id, tenant.name)}>
-                          <Trash2 className="h-4 w-4 mr-2" />Hapus
-                        </DropdownMenuItem>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  </TableCell>
+          {isLoading ? (
+            <div className="p-12 text-center">
+              <Loader2 className="h-8 w-8 animate-spin text-primary mx-auto" />
+            </div>
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Nama Tenant</TableHead>
+                  <TableHead>Dibuat</TableHead>
+                  <TableHead>Retensi</TableHead>
+                  <TableHead>Status</TableHead>
+                  <TableHead className="w-12"></TableHead>
                 </TableRow>
-              ))}
-            </TableBody>
-          </Table>
+              </TableHeader>
+              <TableBody>
+                {filteredTenants.map((tenant) => (
+                  <TableRow key={tenant.id}>
+                    <TableCell className="font-medium">{tenant.name}</TableCell>
+                    <TableCell className="text-muted-foreground">{new Date(tenant.created_at).toLocaleDateString('id-ID')}</TableCell>
+                    <TableCell>{tenant.retention_days} hari</TableCell>
+                    <TableCell>
+                      <Badge 
+                        variant={tenant.is_active ? 'low' : 'secondary'} 
+                        className="cursor-pointer" 
+                        onClick={() => handleToggleActive(tenant.id, tenant.is_active)}
+                      >
+                        {tenant.is_active ? 'Aktif' : 'Nonaktif'}
+                      </Badge>
+                    </TableCell>
+                    <TableCell>
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button variant="ghost" size="icon"><MoreHorizontal className="h-4 w-4" /></Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">
+                          <DropdownMenuItem><Pencil className="h-4 w-4 mr-2" />Edit</DropdownMenuItem>
+                          <DropdownMenuItem className="text-destructive" onClick={() => handleDelete(tenant.id, tenant.name)}>
+                            <Trash2 className="h-4 w-4 mr-2" />Hapus
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          )}
         </div>
       </main>
     </div>
