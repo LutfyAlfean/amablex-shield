@@ -1,10 +1,25 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
+const VERSION = "2.0.0";
+
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-api-token",
 };
+
+// Supported honeypot services
+const SUPPORTED_SERVICES = [
+  "http-honeypot",
+  "ssh-honeypot", 
+  "ftp-honeypot",
+  "mysql-honeypot",
+  "smtp-honeypot",
+  "dns-honeypot",
+  "telnet-honeypot",
+  "rdp-honeypot",
+  "test-honeypot",
+];
 
 // Simple hash function (same as frontend)
 function hashToken(token: string): string {
@@ -17,32 +32,187 @@ function hashToken(token: string): string {
   return hash.toString(16);
 }
 
-// Calculate risk score based on request characteristics
-function calculateRiskScore(path: string, method: string, userAgent: string, body: string): number {
+// Risk scoring rules per service type
+const RISK_RULES = {
+  http: {
+    paths: [
+      { pattern: /admin/i, score: 30 },
+      { pattern: /\.env/i, score: 35 },
+      { pattern: /\.git/i, score: 30 },
+      { pattern: /config/i, score: 25 },
+      { pattern: /phpmyadmin/i, score: 25 },
+      { pattern: /wp-admin/i, score: 20 },
+      { pattern: /backup/i, score: 20 },
+      { pattern: /shell/i, score: 40 },
+      { pattern: /cmd/i, score: 40 },
+      { pattern: /eval/i, score: 35 },
+    ],
+    payloads: [
+      { pattern: /SELECT.*FROM/i, score: 30 },
+      { pattern: /UNION.*SELECT/i, score: 35 },
+      { pattern: /<script>/i, score: 35 },
+      { pattern: /<\?php/i, score: 35 },
+      { pattern: /wget|curl/i, score: 25 },
+      { pattern: /passwd|shadow/i, score: 30 },
+      { pattern: /\.\.\/|\.\.\\/, score: 25 },
+      { pattern: /jndi:/i, score: 40 },
+      { pattern: /\${.*}/i, score: 30 },
+    ],
+    userAgents: [
+      { pattern: /sqlmap/i, score: 30 },
+      { pattern: /nikto/i, score: 25 },
+      { pattern: /nmap/i, score: 20 },
+      { pattern: /masscan/i, score: 20 },
+      { pattern: /nuclei/i, score: 15 },
+      { pattern: /dirbuster/i, score: 20 },
+      { pattern: /gobuster/i, score: 20 },
+    ],
+  },
+  ssh: {
+    users: [
+      { pattern: /^root$/i, score: 35 },
+      { pattern: /^admin$/i, score: 30 },
+      { pattern: /^oracle$/i, score: 25 },
+      { pattern: /^postgres$/i, score: 25 },
+      { pattern: /^mysql$/i, score: 25 },
+      { pattern: /^test$/i, score: 15 },
+    ],
+    patterns: [
+      { pattern: /failed.*password/i, score: 20 },
+      { pattern: /invalid.*user/i, score: 25 },
+      { pattern: /brute/i, score: 40 },
+    ],
+  },
+  ftp: {
+    users: [
+      { pattern: /^anonymous$/i, score: 15 },
+      { pattern: /^root$/i, score: 35 },
+      { pattern: /^admin$/i, score: 30 },
+    ],
+    patterns: [
+      { pattern: /login.*failed/i, score: 20 },
+    ],
+  },
+  mysql: {
+    queries: [
+      { pattern: /DROP/i, score: 50 },
+      { pattern: /DELETE.*FROM/i, score: 35 },
+      { pattern: /UPDATE.*SET/i, score: 25 },
+      { pattern: /INSERT.*INTO/i, score: 15 },
+      { pattern: /LOAD_FILE/i, score: 40 },
+      { pattern: /INTO.*OUTFILE/i, score: 45 },
+    ],
+    users: [
+      { pattern: /^root$/i, score: 35 },
+      { pattern: /^admin$/i, score: 30 },
+    ],
+  },
+};
+
+// Calculate risk score based on service type and request characteristics
+function calculateRiskScore(
+  service: string,
+  path: string, 
+  method: string, 
+  userAgent: string, 
+  body: string
+): number {
   let score = 0;
+  const serviceType = service.replace("-honeypot", "");
   
-  // Path sensitivity
-  if (path.includes('admin') || path.includes('config') || path.includes('.env')) score += 30;
-  if (path.includes('.git') || path.includes('backup')) score += 25;
-  if (path.includes('phpmyadmin') || path.includes('wp-admin')) score += 20;
-  
-  // Payload analysis
-  if (body) {
-    if (body.includes('SELECT') || body.includes("'")) score += 25;
-    if (body.includes('<script>') || body.includes('<?php')) score += 30;
-    if (body.includes('jndi') || body.includes('wget')) score += 35;
-    if (body.includes('passwd') || body.includes('../')) score += 20;
+  // HTTP specific rules
+  if (serviceType === "http" || serviceType === "test") {
+    const rules = RISK_RULES.http;
+    
+    // Check paths
+    for (const rule of rules.paths) {
+      if (rule.pattern.test(path)) {
+        score += rule.score;
+      }
+    }
+    
+    // Check payloads
+    for (const rule of rules.payloads) {
+      if (rule.pattern.test(body)) {
+        score += rule.score;
+      }
+    }
+    
+    // Check user agents
+    for (const rule of rules.userAgents) {
+      if (rule.pattern.test(userAgent)) {
+        score += rule.score;
+      }
+    }
+    
+    // Method bonus
+    if (method === "POST" || method === "PUT") score += 5;
+    if (method === "DELETE") score += 10;
   }
   
-  // User agent
-  if (userAgent) {
-    if (userAgent.includes('sqlmap') || userAgent.includes('Nikto')) score += 25;
-    if (userAgent.includes('Nmap') || userAgent.includes('masscan')) score += 20;
-    if (userAgent.includes('Nuclei')) score += 15;
+  // SSH specific rules
+  if (serviceType === "ssh") {
+    const rules = RISK_RULES.ssh;
+    
+    // Extract username from body/path
+    for (const rule of rules.users) {
+      if (rule.pattern.test(body) || rule.pattern.test(path)) {
+        score += rule.score;
+      }
+    }
+    
+    for (const rule of rules.patterns) {
+      if (rule.pattern.test(body)) {
+        score += rule.score;
+      }
+    }
+    
+    // Base score for SSH attempts
+    score += 15;
   }
   
-  // Method
-  if (method === 'POST' || method === 'PUT') score += 5;
+  // FTP specific rules
+  if (serviceType === "ftp") {
+    const rules = RISK_RULES.ftp;
+    
+    for (const rule of rules.users) {
+      if (rule.pattern.test(body) || rule.pattern.test(path)) {
+        score += rule.score;
+      }
+    }
+    
+    for (const rule of rules.patterns) {
+      if (rule.pattern.test(body)) {
+        score += rule.score;
+      }
+    }
+    
+    score += 10;
+  }
+  
+  // MySQL specific rules
+  if (serviceType === "mysql") {
+    const rules = RISK_RULES.mysql;
+    
+    for (const rule of rules.queries) {
+      if (rule.pattern.test(body)) {
+        score += rule.score;
+      }
+    }
+    
+    for (const rule of rules.users) {
+      if (rule.pattern.test(body)) {
+        score += rule.score;
+      }
+    }
+    
+    score += 10;
+  }
+  
+  // Other services get base score
+  if (!["http", "ssh", "ftp", "mysql", "test"].includes(serviceType)) {
+    score += 20;
+  }
   
   return Math.min(100, score);
 }
@@ -150,7 +320,12 @@ serve(async (req) => {
     const path = eventData.path || req.url;
     const method = eventData.method || req.method;
     const userAgent = req.headers.get("user-agent") || eventData.user_agent || "";
-    const riskScore = calculateRiskScore(path, method, userAgent, body);
+    const service = eventData.service || "http-honeypot";
+    
+    // Validate service type
+    const validService = SUPPORTED_SERVICES.includes(service) ? service : "http-honeypot";
+    
+    const riskScore = calculateRiskScore(validService, path, method, userAgent, body);
 
     // Insert event
     const { data: insertedEvent, error: insertError } = await supabase
@@ -158,7 +333,7 @@ serve(async (req) => {
       .insert({
         tenant_id: tokenData.tenant_id,
         source_ip: sourceIp,
-        service: eventData.service || "http-honeypot",
+        service: validService,
         path: path,
         method: method,
         user_agent: userAgent,
@@ -181,13 +356,15 @@ serve(async (req) => {
       );
     }
 
-    console.log(`Event ingested: ${insertedEvent.id} from ${sourceIp} risk=${riskScore}`);
+    console.log(`[v${VERSION}] Event ingested: ${insertedEvent.id} from ${sourceIp} service=${validService} risk=${riskScore}`);
 
     return new Response(
       JSON.stringify({ 
         success: true, 
         event_id: insertedEvent.id,
-        risk_score: riskScore
+        risk_score: riskScore,
+        service: validService,
+        version: VERSION,
       }),
       { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );

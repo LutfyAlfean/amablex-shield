@@ -5,8 +5,30 @@ import { EventTagBadge } from './EventTag';
 import { formatRelativeTime, sanitizeForDisplay, getCountryFlag } from '@/lib/sanitize';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Button } from '@/components/ui/button';
-import { Eye, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Eye, ChevronLeft, ChevronRight, Globe, Server, Terminal, Database, Mail, Wifi } from 'lucide-react';
 import { cn } from '@/lib/utils';
+
+const SERVICE_CONFIG: Record<string, { icon: typeof Globe; color: string; label: string }> = {
+  'http-honeypot': { icon: Globe, color: 'text-blue-500', label: 'HTTP' },
+  'ssh-honeypot': { icon: Terminal, color: 'text-green-500', label: 'SSH' },
+  'ftp-honeypot': { icon: Server, color: 'text-yellow-500', label: 'FTP' },
+  'mysql-honeypot': { icon: Database, color: 'text-orange-500', label: 'MySQL' },
+  'smtp-honeypot': { icon: Mail, color: 'text-purple-500', label: 'SMTP' },
+  'dns-honeypot': { icon: Wifi, color: 'text-cyan-500', label: 'DNS' },
+  'test-honeypot': { icon: Server, color: 'text-muted-foreground', label: 'Test' },
+};
+
+function ServiceBadge({ service }: { service: string }) {
+  const config = SERVICE_CONFIG[service] || { icon: Server, color: 'text-muted-foreground', label: service.replace('-honeypot', '') };
+  const Icon = config.icon;
+  
+  return (
+    <div className={cn("flex items-center gap-1.5 text-xs font-medium", config.color)}>
+      <Icon className="h-3.5 w-3.5" />
+      <span>{config.label}</span>
+    </div>
+  );
+}
 
 interface EventsTableProps {
   events: HoneypotEvent[];
@@ -37,7 +59,7 @@ export function EventsTable({ events, onViewDetails, isLoading }: EventsTablePro
           <TableHeader>
             <TableRow className="border-border/50 hover:bg-transparent">
               <TableHead className="text-muted-foreground font-medium">Waktu</TableHead>
-              <TableHead className="text-muted-foreground font-medium">Tenant</TableHead>
+              <TableHead className="text-muted-foreground font-medium">Service</TableHead>
               <TableHead className="text-muted-foreground font-medium">IP Sumber</TableHead>
               <TableHead className="text-muted-foreground font-medium">Path</TableHead>
               <TableHead className="text-muted-foreground font-medium">Method</TableHead>
@@ -61,8 +83,8 @@ export function EventsTable({ events, onViewDetails, isLoading }: EventsTablePro
                 <TableCell className="font-mono text-xs text-muted-foreground whitespace-nowrap">
                   {formatRelativeTime(event.timestamp)}
                 </TableCell>
-                <TableCell className="text-sm max-w-[120px] truncate">
-                  {event.tenant_name}
+                <TableCell>
+                  <ServiceBadge service={event.service || 'http-honeypot'} />
                 </TableCell>
                 <TableCell className="font-mono text-sm">
                   <div className="flex items-center gap-1.5">
